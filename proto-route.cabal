@@ -1,0 +1,42 @@
+name:                proto-route
+version:             0.0.0
+description:         Remote testing tool for protobuf endpoints
+synopsis:            Remote testing tool for protobuf endpoints
+homepage:            https://github.com/holmusk/proto-route
+bug-reports:         https://github.com/holmusk/proto-route/issues
+license:             MIT
+license-file:        LICENSE
+author:              Holmusk
+maintainer:          tech@holmusk.com
+copyright:           2018 Holmusk
+category:            Protobuf, Network
+build-type:          Simple
+extra-doc-files:     README.md
+                   , CHANGELOG.md
+cabal-version:       1.24
+tested-with:         GHC == 8.4.3
+
+source-repository head
+  type:                git
+  location:            https://github.com/holmusk/proto-route.git
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     ProtoRoute
+                       Prelude
+  ghc-options:         -Wall
+  build-depends:       base-noprelude
+                     , universum
+  default-language:    Haskell2010
+  
+
+executable proto-route
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base-noprelude
+                     , proto-route
+                     , universum
+  default-language:    Haskell2010
+  
+
