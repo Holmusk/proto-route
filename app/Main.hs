@@ -1,7 +1,6 @@
 module Main where
 
-import ProtoRoute (someFunc)
+import qualified ProtoRoute
 
 main :: IO ()
-main = someFunc
-
+main = ProtoRoute.main

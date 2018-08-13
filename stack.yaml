@@ -1,0 +1,4 @@
+resolver: lts-12.6
+
+extra-deps:
+  - base-noprelude-4.10.1.0

@@ -1,0 +1,5 @@
+syntax = "proto2";
+
+message SearchRequest {
+  required string query = 1;
+}
