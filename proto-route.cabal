@@ -31,6 +31,8 @@ library
   hs-source-dirs:      src
   exposed-modules:     ProtoExports
                        ProtoRoute
+                       ProtoRoute.Ghcid
+                       ProtoRoute.Message
                        Proto.Protobuf1
                        Proto.Protobuf1_Fields
   ghc-options:         -Wall

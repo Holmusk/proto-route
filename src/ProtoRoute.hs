@@ -2,21 +2,20 @@ module ProtoRoute
        ( main
        ) where
 
-import Language.Haskell.Ghcid  (execStream, startGhci, stopGhci)
-import System.Directory (getCurrentDirectory)
+import Data.Text (pack)
+import ProtoRoute.Ghcid (runGhci)
+import ProtoRoute.Message (MsgName (..), FieldName (..), TValue (..),
+                           FieldValue (..), constructProtoMsg)
 
 main :: IO ()
-main = do
-    let f = \_ s -> putStrLn s
-    curDir <- getCurrentDirectory
-    (g, _) <- startGhci "ghci" (Just curDir) f
-    let execStatement s = execStream g s f
-    execStatement "import Data.Text"
-    execStatement "import Data.ProtoLens.Encoding"
-    execStatement ":load src/ProtoExports"
-    execStatement "let sr = SearchRequest {_SearchRequest'query = pack \"test\"\
-                           \, _SearchRequest'_unknownFields = ([])}"
-    -- Value of generated msg, and its serialized representation
-    execStatement "sr"
-    execStatement "encodeMessage sr"
-    stopGhci g
+main = runGhci $ constructProtoMsg msg [(field1, value1)
+                                      , (field2, value2)
+                                      , (unknown, none)]
+  where
+    msg = MN "SearchRequest"
+    field1 = FN "query"
+    value1 = FText (Req $ pack "someText")
+    field2 = FN "browser"
+    value2 = FText (Opt (Just $ pack "Safari"))
+    unknown = FN "_unknownFields"
+    none = FText (Rep [])
