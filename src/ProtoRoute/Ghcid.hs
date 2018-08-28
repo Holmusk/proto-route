@@ -15,6 +15,7 @@ runGhci stuff = do
     runCmd ":set -XOverloadedStrings"
     runCmd "import Data.ProtoLens.Encoding"
     runCmd ":load src/ProtoExports"
+    putStrLn stuff
     runCmd ("let testMsg = " ++ stuff)
     runCmd "encodeMessage testMsg"
     stopGhci g

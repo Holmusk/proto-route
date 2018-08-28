@@ -1,7 +1,7 @@
 module ProtoExports
-    ( module Proto.Protobuf1
-    , module Proto.Protobuf1_Fields
+    ( module Proto.Protobuf2
+    , module Proto.Protobuf2_Fields
     ) where
 
-import Proto.Protobuf1
-import Proto.Protobuf1_Fields
+import Proto.Protobuf2
+import Proto.Protobuf2_Fields

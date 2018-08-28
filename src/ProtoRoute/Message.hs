@@ -17,10 +17,9 @@ import Data.Text (Text)
 newtype MsgName   = MN { unMsgName   :: String } deriving newtype (Show)
 newtype FieldName = FN { unFieldName :: String } deriving newtype (Show)
 
-data TValue a   = Req a | Opt (Maybe a) | Rep [a] deriving (Show) -- value type
+data TValue a   = Req a | Opt (Maybe a) | Rep [a] | Error deriving (Show)
 data FieldValue = FText (TValue Text) | FInt (TValue Int) |
                   FMsg (TValue Message) deriving (Show)
--- Typesafe representation of a protobuf mesage
 data Message = Message
     { messageName :: MsgName
     , messageFields :: [(FieldName, FieldValue)]
@@ -40,6 +39,7 @@ fromTV :: (Show a) => TValue a -> String
 fromTV (Req val)  = show val
 fromTV (Opt txt)  = show txt
 fromTV (Rep list) = show list
+fromTV Error = "Error"
 
 constructProtoMsg :: MsgName -> [(FieldName, FieldValue)] -> String
 constructProtoMsg msgName namesVals =

@@ -15,7 +15,7 @@ extra-doc-files:     README.md
                    , CHANGELOG.md
 cabal-version:       1.24
 tested-with:         GHC == 8.4.3
-extra-source-files:  proto/protobuf1.proto
+extra-source-files:  proto/*.proto
 
 source-repository head
   type:                git
@@ -33,16 +33,21 @@ library
                        ProtoRoute
                        ProtoRoute.Ghcid
                        ProtoRoute.Message
-                       Proto.Protobuf1
-                       Proto.Protobuf1_Fields
+                       Proto.Protobuf2
+                       Proto.Protobuf2_Fields
+                       Tui
   ghc-options:         -Wall
   build-depends:       base >=4.7 && <5
+                     , brick
+                     , containers
                      , directory
                      , ghcid
+                     , linear
                      , protobuf
                      , proto-lens
                      , proto-lens-protoc
                      , text
+                     , vty
   default-language:    Haskell2010
 
 
@@ -51,11 +56,15 @@ executable proto-route
   main-is:             Main.hs
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
+                     , brick
+                     , containers
                      , directory
                      , ghcid
+                     , linear
                      , protobuf
                      , proto-lens
                      , proto-lens-protoc
                      , proto-route
                      , text
+                     , vty
   default-language:    Haskell2010
