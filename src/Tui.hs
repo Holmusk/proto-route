@@ -82,9 +82,7 @@ addFieldName = do
 
 addFVPair :: IO (FieldName, FieldValue)
 addFVPair = do
-    simpleMain $ vBox [setMsgName, onFieldName, setFieldType]
-    field <- getLine
-    let fn = FN (map toLower field)
+    fn <- addFieldName
     simpleMain $ vBox [setMsgName, setFieldName, onFieldType]
     t <- getLine
     simpleMain (setValue t)
