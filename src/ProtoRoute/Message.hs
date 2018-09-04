@@ -11,7 +11,12 @@ module ProtoRoute.Message
     , FieldValue (..)
     , SchemaField (..)
     , MessageSchema (..)
-    , constructProtoMsg) where
+    , constructProtoMsg
+    , SchemaRule (..)
+    , SchemaType (..)
+    , validateMessage
+    , ValidationError (..)
+    , incorrectFieldNames) where
 
 import qualified Data.Map.Strict as M
 import qualified Data.Map.Merge.Strict as MS
@@ -19,23 +24,22 @@ import Data.List (intercalate)
 import Data.Text (Text)
 import Data.These
 
-newtype MsgName   = MN { unMsgName   :: String } deriving (Show, Eq, Ord)
-newtype FieldName = FN { unFieldName :: String } deriving (Show, Eq, Ord)
+newtype MsgName   = MN { unMsgName   :: String } deriving (Show, Eq, Ord, Read)
+newtype FieldName = FN { unFieldName :: String } deriving (Show, Eq, Ord, Read)
 
-data TValue a   = Req a | Opt (Maybe a) | Rep [a] | Error
-                  deriving (Show, Eq, Ord)
+data TValue a   = Req a | Opt (Maybe a) | Rep [a] deriving (Show, Eq, Ord, Read)
 data FieldValue = FText (TValue Text) | FInt (TValue Int) |
                   FMsg (TValue Message)
-                  deriving (Show, Eq, Ord)
+                  deriving (Show, Eq, Ord, Read)
 
-data SchemaRule = SReq | SOpt | SRep deriving (Show, Eq, Ord)
-data SchemaType = SText | SInt | SMsg deriving (Show, Eq, Ord)
+data SchemaRule = SReq | SOpt | SRep deriving (Show, Eq, Ord, Read)
+data SchemaType = SText | SInt | SMsg deriving (Show, Eq, Ord, Read)
 
 -- The guideline for creating a message
 data MessageSchema = MessageSchema
     { msgSchemaName :: MsgName
     , msgSchemaFields :: [SchemaField]
-    } deriving (Show, Eq, Ord)
+    } deriving (Show, Eq, Ord, Read)
 
 -- Schema fields have no value, just <rule><type><name>
 -- e.g. "required string query"
@@ -43,26 +47,26 @@ data SchemaField = SchemaField
     { schemaFieldRule :: SchemaRule
     , schemaFieldType :: SchemaType
     , schemaFieldName :: FieldName
-    } deriving (Show, Eq, Ord)
+    } deriving (Show, Eq, Ord, Read)
 
 -- Structure of an actual attempted message
 data Message = Message
     { messageName :: MsgName
     , messageFields :: [MessageField]
-    } deriving (Show, Eq, Ord)
+    } deriving (Show, Eq, Ord, Read)
 
 -- Structure of a msg field, which has custom values
 data MessageField = MessageField
     { messageFieldName :: FieldName
     , messageFieldValue :: FieldValue
-    } deriving (Show, Eq, Ord)
+    } deriving (Show, Eq, Ord, Read)
 
 -- Validation errors can be incomplete required fields, wrong fields types,
 -- wrong rules or mismatching field names
 data ValidationError = Incomplete String |
                        WrongName  String |
                        WrongType  String |
-                       Invalid    String deriving (Show, Eq, Ord)
+                       Invalid    String deriving (Show, Eq, Ord, Read)
 
 incomplete :: ValidationError
 incomplete = Incomplete "Required field not filled"
@@ -76,9 +80,6 @@ incorrectMsgNames = WrongName "Message names do not match"
 incorrectTypes :: ValidationError
 incorrectTypes = WrongType "There are mismatching types"
 
-invalid :: ValidationError
-invalid = Invalid "Your message is invalid"
-
 -- Shows value of a message field
 fromFV :: FieldValue -> String
 fromFV (FText txt) = fromTV txt
@@ -90,7 +91,6 @@ fromTV :: (Show a) => TValue a -> String
 fromTV (Req val)  = show val
 fromTV (Opt txt)  = show txt
 fromTV (Rep list) = show list
-fromTV Error = "Error"
 
 -- Checks if rules in msg match those in corresponding schema
 correct :: TValue a -> SchemaRule -> Bool
@@ -110,18 +110,19 @@ verify :: Bool -> ValidationError -> Either ValidationError ()
 verify True someError = Left someError
 verify False _ = Right ()
 
--- Validates single field, checking msg attempt against schema
 validateField :: SchemaField -> MessageField -> Either ValidationError ()
 validateField (SchemaField sfr sft sfn) (MessageField mfn mfv) = do
     verify (mfn /= sfn) incorrectFieldNames
     verify (not $ okTypes mfv sfr sft) incorrectTypes
 
+-- Validates single field, checking msg attempt against schema
 validateMessageThese :: These SchemaField MessageField -> Either ValidationError ()
 validateMessageThese x = case x of
     These sf mf -> validateField sf mf
     This (SchemaField sRule _ _) -> verify (sRule == SReq) incomplete
     That _ -> Left incorrectFieldNames
 
+-- Validates entire message
 validateMessage :: MessageSchema -> Message -> Either ValidationError ()
 validateMessage (MessageSchema sn sFields) (Message mn mFields) = do
     verify (mn /= sn) incorrectMsgNames
@@ -150,7 +151,6 @@ validateMessage (MessageSchema sn sFields) (Message mn mFields) = do
         (MS.mapMaybeMissing makeThis)
         (MS.mapMaybeMissing makeThat)
         (MS.zipWithMaybeMatched makeThese)
-
 
 -- Constructs message as a string
 constructProtoMsg :: MsgName -> [(FieldName, FieldValue)] -> String

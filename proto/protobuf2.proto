@@ -2,4 +2,6 @@ syntax = "proto2";
 
 message SearchRequest {
   required string query = 1;
+  optional int32 maybeNum = 2;
+  repeated int32 numList  = 3;
 }
