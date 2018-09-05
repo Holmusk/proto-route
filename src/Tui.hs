@@ -17,6 +17,7 @@ import Brick.Widgets.Border
 import Brick.Widgets.Border.Style
 import Brick.Widgets.Center
 import Data.Char (toUpper)
+import Data.List (intercalate)
 import Text.Read (readEither)
 import ProtoRoute.Ghcid (runGhci)
 import ProtoRoute.Message ( MsgName (..)
@@ -59,12 +60,30 @@ onFieldName =
     setAttr (">>>>" ++ map toUpper "Press enter to type field name" ++ "<<<<")
     [("Enter", "Type field name")]
 
-showSchema :: Widget ()
-showSchema = setAttr "MESSAGE NAME: SearchRequest"
-    [ ("required string query", "Must give string here for valid message")
-    , ("optional int maybeNum", "Nothing or Just <yourValue>")
-    , ("repeated int numList" , "Empty list or list of integers")
-    ]
+fieldToDisplay :: SchemaField -> (String, String)
+fieldToDisplay (SchemaField sfr sft sfn) = (protoLine, description)
+  where
+    description = case sfr of
+        SReq -> "Must give " ++ fromType sft ++ " here for valid msg"
+        SOpt -> "Nothing or Just <yourValue>, must be of type " ++ fromType sft
+        SRep -> "Empty list i.e. [], or list of type " ++ fromType sft
+    protoLine = intercalate " " [fromRule sfr, fromType sft, unFieldName sfn]
+
+    fromRule :: SchemaRule -> String
+    fromRule r = case r of
+        SReq -> "required"
+        SOpt -> "optional"
+        SRep -> "repeated"
+
+    fromType :: SchemaType -> String
+    fromType t = case t of
+        SText -> "string"
+        SInt -> "int"
+        SMsg -> "message"
+
+showSchema :: MessageSchema -> Widget ()
+showSchema (MessageSchema smn sFields) =
+    setAttr ("MESSAGE NAME: " ++ unMsgName smn) $ map fieldToDisplay (init sFields)
 
 setValue :: FieldName -> Widget ()
 setValue s = case toFC msgSchema s of
@@ -117,14 +136,14 @@ processFTV field value = case field of
 
 addMsgName :: IO MsgName
 addMsgName = do
-    simpleMain $ vBox [onMsgName, setFieldName, showSchema]
+    simpleMain $ vBox [onMsgName, setFieldName, showSchema msgSchema]
     msgName <- getLine
     let mn = MN msgName
     return mn
 
 addFVPair :: IO (FieldName, FieldValue)
 addFVPair = do
-    simpleMain $ vBox [setMsgName, onFieldName, showSchema]
+    simpleMain $ vBox [setMsgName, onFieldName, showSchema msgSchema]
     putStrLn "If you are changing a value, type the same field name as before"
     field <- getLine
     let fn = FN field
