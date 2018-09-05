@@ -57,7 +57,7 @@ setFieldName = setAttr "Press enter to type field name"
 onFieldName :: Widget ()
 onFieldName =
     setAttr (">>>>" ++ map toUpper "Press enter to type field name" ++ "<<<<")
-    [("Enter", "Type msg name")]
+    [("Enter", "Type field name")]
 
 showSchema :: Widget ()
 showSchema = setAttr "MESSAGE NAME: SearchRequest"
@@ -66,15 +66,15 @@ showSchema = setAttr "MESSAGE NAME: SearchRequest"
     , ("repeated int numList" , "Empty list or list of integers")
     ]
 
-setValue :: String -> Widget ()
-setValue s = case toFC s of
-  FReq  -> setAttr "Press enter key to give value for this new field"
-         [("Enter", "Type new value in string quotes")]
-  FOpt  -> setAttr "Press enter to give optional value for this new field"
-         [("Enter", "Type Nothing or Just \"yourValue\" ")]
-  FRep  -> setAttr "Press enter to give repeated value for this new field"
-        [("Enter", "Type list of values")]
-  Wrong -> onFieldName
+setValue :: FieldName -> Widget ()
+setValue s = case toFC msgSchema s of
+    Right SReq -> setAttr "Press enter: give value for new field"
+           [("Enter", "Type new value in string quotes")]
+    Right SOpt -> setAttr "Press enter: give optional value for new field"
+           [("Enter", "Type Nothing or Just \"yourValue\" ")]
+    Right SRep -> setAttr "Press enter: give repeated value for new field"
+           [("Enter", "Type list of values")]
+    Left _ -> onFieldName
 
 msgSchema :: MessageSchema
 msgSchema = MessageSchema { msgSchemaName = MN "SearchRequest"
@@ -101,21 +101,19 @@ msgSchema = MessageSchema { msgSchemaName = MN "SearchRequest"
                             }]
                           }
 
-data FieldChoice = FReq | FOpt | FRep | Wrong deriving (Show, Read)
+toFC :: MessageSchema -> FieldName -> Either String SchemaRule
+toFC (MessageSchema _ []) _ = Left "Invalid field"
+toFC sch@(MessageSchema _ (SchemaField sfr _ sfn : sFields)) fn =
+    if fn == sfn
+    then Right sfr
+    else toFC (sch {msgSchemaFields = sFields}) fn
 
-toFC :: String -> FieldChoice
-toFC s = case s of
-    "query"    -> FReq
-    "maybeNum" -> FOpt
-    "numList"  -> FRep
-    _          -> Wrong
-
-processFTV :: FieldChoice -> String -> Either String FieldValue
+processFTV :: Either String SchemaRule -> String -> Either String FieldValue
 processFTV field value = case field of
-    FReq -> FText . Req <$> readEither value
-    FOpt -> FInt . Opt <$> readEither value
-    FRep  -> FInt . Rep <$> readEither value
-    Wrong -> readEither "Wrong field names"
+    Right SReq  -> FText . Req <$> readEither value
+    Right SOpt  -> FInt  . Opt <$> readEither value
+    Right SRep  -> FInt  . Rep <$> readEither value
+    Left _ -> Left "Wrong field names"
 
 addMsgName :: IO MsgName
 addMsgName = do
@@ -130,11 +128,15 @@ addFVPair = do
     putStrLn "If you are changing a value, type the same field name as before"
     field <- getLine
     let fn = FN field
-    simpleMain (setValue field)
-    val <- getLine
-    let fc = toFC field
-    let fv = either read id (processFTV fc val)
-    return (fn,fv)
+    let fc = toFC msgSchema fn
+    case fc of
+      Right _ -> do
+          simpleMain (setValue fn)
+          val <- getLine
+          let fv = either read id (processFTV fc val)
+          return (fn,fv)
+      Left _ -> addFVPair
+
 
 completeField :: IO (FieldName, FieldValue)
 completeField = do
