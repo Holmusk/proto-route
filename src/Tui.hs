@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MultiWayIf #-}
 
 module Tui
     ( setAttr
@@ -160,7 +161,7 @@ addFVPair = do
 completeField :: IO (FieldName, FieldValue)
 completeField = do
     (fn, fv) <- addFVPair
-    putStrLn "Change field value? y to keep editing, any other key to continue"
+    putStrLn "Change this field's value? y to keep editing, any other key to continue"
     choice <- getLine
     if choice == "y"
     then do
@@ -168,8 +169,8 @@ completeField = do
         return (fn2, fv2)
     else return (fn, fv)
 
-finishOff :: MsgName -> [(FieldName, FieldValue)] -> [MessageField] -> IO ()
-finishOff mn namesVals fields = do
+serialize :: MsgName -> [(FieldName, FieldValue)] -> [MessageField] -> IO ()
+serialize mn namesVals fields = do
     let stringMsg = constructProtoMsg mn namesVals
     let msg = Message {messageName = mn, messageFields = fields}
     let validationWrong = validateMessage msgSchema msg
@@ -177,18 +178,63 @@ finishOff mn namesVals fields = do
     then runGhci stringMsg
     else print validationWrong
 
+replace :: Int -> a -> [a] -> [a]
+replace n arg list = x ++ arg : ys
+  where
+    (x,_:ys) = splitAt n list
+
 main :: IO ()
 main = do
     mn <- addMsgName
     (fnA, fvA) <- completeField
-    let field1 = MessageField {messageFieldName = fnA, messageFieldValue = fvA}
+    let field1 = (MessageField fnA fvA)
     (fnB, fvB) <- completeField
-    let field2 = MessageField {messageFieldName = fnB, messageFieldValue = fvB}
+    let field2 = (MessageField fnB fvB)
     (fnC, fvC) <- completeField
-    let field3 = MessageField {messageFieldName = fnC, messageFieldValue = fvC}
+    let field3 = (MessageField fnC fvC)
     let namesVals = [(fnA, fvA)
                    , (fnB, fvB)
                    , (fnC, fvC)
                    , (FN "_unknownFields", FText (Rep []))]
     let fields = [field1, field2, field3]
-    finishOff mn namesVals fields
+    serialize mn namesVals fields
+    changeFieldsOrNot mn namesVals fields
+  where
+    changeFieldsOrNot :: MsgName
+                      -> [(FieldName, FieldValue)]
+                      -> [MessageField]
+                      -> IO ()
+    changeFieldsOrNot mn namesVals fields = do
+        putStrLn "Change any field's value? y for yes, s to serialize, any other key to quit"
+        choice <- getLine
+        if choice == "y"
+        then do
+          (newFN, newFV) <- completeField
+          if | newFN == messageFieldName (fields!!0) ->
+               let (newNamesVals, newFields) = doubleReplace 0 (newFN, newFV) namesVals fields
+               in changeFieldsOrNot mn newNamesVals newFields
+             | newFN == messageFieldName (fields!!1) ->
+               let (newNamesVals, newFields) = doubleReplace 1 (newFN, newFV) namesVals fields
+               in changeFieldsOrNot mn newNamesVals newFields
+             | otherwise ->
+               let (newNamesVals, newFields) = doubleReplace 2 (newFN, newFV) namesVals fields
+               in changeFieldsOrNot mn newNamesVals newFields
+        else if choice == "s"
+        then useTwo serialize changeFieldsOrNot mn namesVals fields
+        else putStrLn "Ok, see final serialisation above."
+
+    doubleReplace :: Int
+                  -> (FieldName, FieldValue)
+                  -> [(FieldName, FieldValue)]
+                  -> [MessageField]
+                  -> ([(FieldName, FieldValue)], [MessageField])
+    doubleReplace n (newFN, newFV) namesVals fields =
+        ( replace n (newFN, newFV) namesVals
+        , replace n (MessageField newFN newFV) fields)
+
+    useTwo :: (a -> b -> c -> IO ())
+           -> (a -> b -> c -> IO ())
+           -> a -> b -> c -> IO ()
+    useTwo f g a b c = do
+        f a b c
+        g a b c
