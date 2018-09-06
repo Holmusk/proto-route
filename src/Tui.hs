@@ -50,7 +50,7 @@ setAttr s1 opts = withBorderStyle unicodeBold
 setMsgName :: Widget ()
 setMsgName = setAttr "Construct a message" [("Enter", "Type msg name")]
 onMsgName :: Widget ()
-onMsgName = setAttr ("**" ++ map toUpper "Construct a message" ++ "**")
+onMsgName = setAttr (">>>>" ++ map toUpper "Construct a message" ++ "<<<<")
     [("Enter", "Type msg name")]
 
 setFieldName :: Widget ()
@@ -61,6 +61,30 @@ onFieldName =
     setAttr (">>>>" ++ map toUpper "Press enter to type field name" ++ "<<<<")
     [("Enter", "Type field name")]
 
+fromRule :: SchemaRule -> String
+fromRule r = case r of
+    SReq -> "required"
+    SOpt -> "optional"
+    SRep -> "repeated"
+
+toRule :: String -> SchemaRule
+toRule s = case s of
+    "required" -> SReq
+    "optional" -> SOpt
+    "repeated" -> SRep
+
+fromType :: SchemaType -> String
+fromType t = case t of
+    SText -> "string"
+    SInt -> "int32"
+    SMsg -> "message"
+
+toType :: String -> SchemaType
+toType s = case s of
+    "string"  -> SText
+    "int32"   -> SInt
+    "message" -> SMsg
+
 fieldToDisplay :: SchemaField -> (String, String)
 fieldToDisplay (SchemaField sfr sft sfn) = (protoLine, description)
   where
@@ -68,19 +92,7 @@ fieldToDisplay (SchemaField sfr sft sfn) = (protoLine, description)
         SReq -> "Must give " ++ fromType sft ++ " here for valid msg"
         SOpt -> "Nothing or Just <yourValue>, must be of type " ++ fromType sft
         SRep -> "Empty list i.e. [], or list of type " ++ fromType sft
-    protoLine = intercalate " " [fromRule sfr, fromType sft, unFieldName sfn]
-
-    fromRule :: SchemaRule -> String
-    fromRule r = case r of
-        SReq -> "required"
-        SOpt -> "optional"
-        SRep -> "repeated"
-
-    fromType :: SchemaType -> String
-    fromType t = case t of
-        SText -> "string"
-        SInt -> "int"
-        SMsg -> "message"
+    protoLine = unwords [fromRule sfr, fromType sft, unFieldName sfn]
 
 showSchema :: MessageSchema -> Widget ()
 showSchema (MessageSchema smn sFields) =
@@ -96,30 +108,47 @@ setValue s = case toFC msgSchema s of
            [("Enter", "Type list of values")]
     Left _ -> onFieldName
 
-msgSchema :: MessageSchema
-msgSchema = MessageSchema { msgSchemaName = MN "SearchRequest"
-                          , msgSchemaFields = [
-                            SchemaField
-                            { schemaFieldRule = SReq
-                            , schemaFieldType = SText
-                            , schemaFieldName = FN "query"
-                            }
-                          , SchemaField
-                            { schemaFieldRule = SOpt
-                            , schemaFieldType = SInt
-                            , schemaFieldName = FN "maybeNum"
-                            }
-                          , SchemaField
-                            { schemaFieldRule = SRep
-                            , schemaFieldType = SInt
-                            , schemaFieldName = FN "numList"
-                            }
-                          , SchemaField
-                            { schemaFieldRule = SRep
+unknownFields :: SchemaField
+unknownFields = SchemaField { schemaFieldRule = SRep
                             , schemaFieldType = SText
                             , schemaFieldName = FN "_unknownFields"
-                            }]
-                          }
+                            }
+
+msgSchema :: MessageSchema
+msgSchema = MessageSchema { msgSchemaName = MN $ parseName fp
+                          , msgSchemaFields = parseFields fp ++ [unknownFields]}
+  where
+    fp = "protobuf2.proto"
+
+parseName :: FilePath -> String
+parseName fp = do
+    content <- readFile fp
+    getName $ lines content  
+  where
+    getName :: [String] -> String
+    getName parts = words (parts !! 1) !! 1
+
+parseField :: String -> SchemaField
+parseField s = do
+    let comps = words s
+    let sfr = toRule (head comps)
+    let sft = toType $ comps !! 1
+    let sfn = FN $ comps !! 2
+    toField sfr sft sfn
+  where
+    toField :: SchemaRule -> SchemaType -> FieldName -> SchemaField
+    toField r t n = SchemaField r t n
+
+parseFields :: FilePath -> [SchemaField]
+parseFields fp = do
+    content <- readFile fp
+    let (_,fields) = splitAt 2 $ lines content
+    -- toFields fields
+    map parseField (init fields)
+  where
+    toFields :: [String] -> [SchemaField]
+    toFields stuff = map parseField stuff
+
 
 toFC :: MessageSchema -> FieldName -> Either String SchemaRule
 toFC (MessageSchema _ []) _ = Left "Invalid field"
@@ -128,6 +157,7 @@ toFC sch@(MessageSchema _ (SchemaField sfr _ sfn : sFields)) fn =
     then Right sfr
     else toFC (sch {msgSchemaFields = sFields}) fn
 
+-- HARDCODED: Change so it accomodates any type of value
 processFTV :: Either String SchemaRule -> String -> Either String FieldValue
 processFTV field value = case field of
     Right SReq  -> FText . Req <$> readEither value
@@ -183,15 +213,16 @@ replace n arg list = x ++ arg : ys
   where
     (x,_:ys) = splitAt n list
 
+-- HARDCODED: change so it allows any number of fields + values to be entered
 main :: IO ()
 main = do
     mn <- addMsgName
     (fnA, fvA) <- completeField
-    let field1 = (MessageField fnA fvA)
+    let field1 = MessageField fnA fvA
     (fnB, fvB) <- completeField
-    let field2 = (MessageField fnB fvB)
+    let field2 = MessageField fnB fvB
     (fnC, fvC) <- completeField
-    let field3 = (MessageField fnC fvC)
+    let field3 = MessageField fnC fvC
     let namesVals = [(fnA, fvA)
                    , (fnB, fvB)
                    , (fnC, fvC)
@@ -210,7 +241,7 @@ main = do
         if choice == "y"
         then do
           (newFN, newFV) <- completeField
-          if | newFN == messageFieldName (fields!!0) ->
+          if | newFN == messageFieldName (head fields) ->
                let (newNamesVals, newFields) = doubleReplace 0 (newFN, newFV) namesVals fields
                in changeFieldsOrNot mn newNamesVals newFields
              | newFN == messageFieldName (fields!!1) ->
