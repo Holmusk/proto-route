@@ -18,7 +18,8 @@ import Brick.Widgets.Border
 import Brick.Widgets.Border.Style
 import Brick.Widgets.Center
 import Data.Char (toUpper)
-import Data.List (intercalate)
+import Data.Foldable (for_)
+import Data.List ((!!), insert)
 import Text.Read (readEither)
 import ProtoRoute.Ghcid (runGhci)
 import ProtoRoute.Message ( MsgName (..)
@@ -72,6 +73,7 @@ toRule s = case s of
     "required" -> SReq
     "optional" -> SOpt
     "repeated" -> SRep
+    _ -> SOpt
 
 fromType :: SchemaType -> String
 fromType t = case t of
@@ -84,29 +86,30 @@ toType s = case s of
     "string"  -> SText
     "int32"   -> SInt
     "message" -> SMsg
+    _ -> SMsg
 
 fieldToDisplay :: SchemaField -> (String, String)
 fieldToDisplay (SchemaField sfr sft sfn) = (protoLine, description)
   where
     description = case sfr of
         SReq -> "Must give " ++ fromType sft ++ " here for valid msg"
-        SOpt -> "Nothing or Just <yourValue>, must be of type " ++ fromType sft
-        SRep -> "Empty list i.e. [], or list of type " ++ fromType sft
+        SOpt -> "Nothing or Just <yourValue>, " ++ fromType sft
+        SRep -> "Empty list i.e. [], or " ++ fromType sft ++ " list"
     protoLine = unwords [fromRule sfr, fromType sft, unFieldName sfn]
 
 showSchema :: MessageSchema -> Widget ()
 showSchema (MessageSchema smn sFields) =
     setAttr ("MESSAGE NAME: " ++ unMsgName smn) $ map fieldToDisplay (init sFields)
 
-setValue :: FieldName -> Widget ()
-setValue s = case toFC msgSchema s of
-    Right SReq -> setAttr "Press enter: give value for new field"
-           [("Enter", "Type new value in string quotes")]
-    Right SOpt -> setAttr "Press enter: give optional value for new field"
-           [("Enter", "Type Nothing or Just \"yourValue\" ")]
-    Right SRep -> setAttr "Press enter: give repeated value for new field"
-           [("Enter", "Type list of values")]
-    Left _ -> onFieldName
+setValue :: FieldName -> MessageSchema -> Widget ()
+setValue s sch = case toFCTC sch s of
+    (Right SReq, _) -> setAttr "Press enter: give value for new field"
+                       [("Enter", "Type new value in string quotes")]
+    (Right SOpt, _) -> setAttr "Press enter: give optional value for new field"
+                       [("Enter", "Type Nothing or Just \"yourValue\" ")]
+    (Right SRep, _) -> setAttr "Press enter: give repeated value for new field"
+                       [("Enter", "Type list of values")]
+    (Left _, _) -> onFieldName
 
 unknownFields :: SchemaField
 unknownFields = SchemaField { schemaFieldRule = SRep
@@ -114,19 +117,21 @@ unknownFields = SchemaField { schemaFieldRule = SRep
                             , schemaFieldName = FN "_unknownFields"
                             }
 
-msgSchema :: MessageSchema
-msgSchema = MessageSchema { msgSchemaName = MN $ parseName fp
-                          , msgSchemaFields = parseFields fp ++ [unknownFields]}
+msgSchema :: IO MessageSchema
+msgSchema = do
+    name <- parseName fp
+    stuff <- parseFields fp
+    return $ MessageSchema (MN name) (stuff ++ [unknownFields])
   where
-    fp = "protobuf2.proto"
+    fp = "proto/protobuf2.proto"
 
-parseName :: FilePath -> String
+parseName :: FilePath -> IO String
 parseName fp = do
     content <- readFile fp
-    getName $ lines content  
+    return $ name $ lines content
   where
-    getName :: [String] -> String
-    getName parts = words (parts !! 1) !! 1
+    name :: [String] -> String
+    name parts = words (head parts) !! 1
 
 parseField :: String -> SchemaField
 parseField s = do
@@ -137,73 +142,86 @@ parseField s = do
     toField sfr sft sfn
   where
     toField :: SchemaRule -> SchemaType -> FieldName -> SchemaField
-    toField r t n = SchemaField r t n
+    toField = SchemaField
 
-parseFields :: FilePath -> [SchemaField]
+parseFields :: FilePath -> IO [SchemaField]
 parseFields fp = do
     content <- readFile fp
-    let (_,fields) = splitAt 2 $ lines content
+    let (_,fields) = splitAt 3 $ lines content
     -- toFields fields
-    map parseField (init fields)
-  where
-    toFields :: [String] -> [SchemaField]
-    toFields stuff = map parseField stuff
+    return $ map parseField (init fields)
 
-
-toFC :: MessageSchema -> FieldName -> Either String SchemaRule
-toFC (MessageSchema _ []) _ = Left "Invalid field"
-toFC sch@(MessageSchema _ (SchemaField sfr _ sfn : sFields)) fn =
+toFCTC :: MessageSchema
+       -> FieldName
+       -> (Either String SchemaRule, Either String SchemaType)
+toFCTC (MessageSchema _ []) _ = (Left "Invalid field", Left "No fields")
+toFCTC sch@(MessageSchema _ (SchemaField sfr sft sfn : sFields)) fn =
     if fn == sfn
-    then Right sfr
-    else toFC (sch {msgSchemaFields = sFields}) fn
+    then (Right sfr, Right sft)
+    else toFCTC (sch {msgSchemaFields = sFields}) fn
 
--- HARDCODED: Change so it accomodates any type of value
-processFTV :: Either String SchemaRule -> String -> Either String FieldValue
-processFTV field value = case field of
-    Right SReq  -> FText . Req <$> readEither value
-    Right SOpt  -> FInt  . Opt <$> readEither value
-    Right SRep  -> FInt  . Rep <$> readEither value
+processFV :: (Read a)
+          => Either String SchemaRule
+          -> String
+          -> Either String (TValue a)
+processFV rule value = case rule of
+    Right SReq -> Req <$> readEither value
+    Right SOpt -> Opt <$> readEither value
+    Right SRep -> Rep <$> readEither value
+    Left _ -> Left "Invalid value"
+
+processFTV :: (Either String SchemaRule, Either String SchemaType)
+           -> String
+           -> Either String FieldValue
+processFTV (rule, schType) value = case schType of
+    Right SText -> FText <$> processFV rule value
+    Right SInt  -> FInt  <$> processFV rule value
+    Right SMsg  -> FMsg  <$> processFV rule value
     Left _ -> Left "Wrong field names"
 
-addMsgName :: IO MsgName
-addMsgName = do
-    simpleMain $ vBox [onMsgName, setFieldName, showSchema msgSchema]
+addMsgName :: MessageSchema -> IO MsgName
+addMsgName sch = do
+    simpleMain $ vBox [onMsgName, setFieldName, showSchema sch]
     msgName <- getLine
     let mn = MN msgName
     return mn
 
-addFVPair :: IO (FieldName, FieldValue)
-addFVPair = do
-    simpleMain $ vBox [setMsgName, onFieldName, showSchema msgSchema]
+addFVPair :: MessageSchema -> IO (FieldName, FieldValue)
+addFVPair sch = do
+    simpleMain $ vBox [setMsgName, onFieldName, showSchema sch]
     putStrLn "If you are changing a value, type the same field name as before"
     field <- getLine
     let fn = FN field
-    let fc = toFC msgSchema fn
+    let fc = toFCTC sch fn
     case fc of
-      Right _ -> do
-          simpleMain (setValue fn)
+      (Right _, Right _) -> do
+          simpleMain (setValue fn sch)
           val <- getLine
           let fv = either read id (processFTV fc val)
           return (fn,fv)
-      Left _ -> addFVPair
+      _ -> addFVPair sch
 
 
-completeField :: IO (FieldName, FieldValue)
-completeField = do
-    (fn, fv) <- addFVPair
+completeField :: MessageSchema -> IO (FieldName, FieldValue)
+completeField sch = do
+    (fn, fv) <- addFVPair sch
     putStrLn "Change this field's value? y to keep editing, any other key to continue"
     choice <- getLine
     if choice == "y"
     then do
-        (fn2, fv2) <- addFVPair
+        (fn2, fv2) <- addFVPair sch
         return (fn2, fv2)
     else return (fn, fv)
 
-serialize :: MsgName -> [(FieldName, FieldValue)] -> [MessageField] -> IO ()
-serialize mn namesVals fields = do
+serialize :: MsgName
+          -> [(FieldName, FieldValue)]
+          -> [MessageField]
+          -> MessageSchema
+          -> IO ()
+serialize mn namesVals fields sch = do
     let stringMsg = constructProtoMsg mn namesVals
-    let msg = Message {messageName = mn, messageFields = fields}
-    let validationWrong = validateMessage msgSchema msg
+    let msg = Message mn fields
+    let validationWrong = validateMessage sch msg
     if validationWrong == Right ()
     then runGhci stringMsg
     else print validationWrong
@@ -213,59 +231,62 @@ replace n arg list = x ++ arg : ys
   where
     (x,_:ys) = splitAt n list
 
--- HARDCODED: change so it allows any number of fields + values to be entered
-main :: IO ()
-main = do
-    mn <- addMsgName
-    (fnA, fvA) <- completeField
-    let field1 = MessageField fnA fvA
-    (fnB, fvB) <- completeField
-    let field2 = MessageField fnB fvB
-    (fnC, fvC) <- completeField
-    let field3 = MessageField fnC fvC
-    let namesVals = [(fnA, fvA)
-                   , (fnB, fvB)
-                   , (fnC, fvC)
-                   , (FN "_unknownFields", FText (Rep []))]
-    let fields = [field1, field2, field3]
-    serialize mn namesVals fields
-    changeFieldsOrNot mn namesVals fields
-  where
-    changeFieldsOrNot :: MsgName
-                      -> [(FieldName, FieldValue)]
-                      -> [MessageField]
-                      -> IO ()
-    changeFieldsOrNot mn namesVals fields = do
-        putStrLn "Change any field's value? y for yes, s to serialize, any other key to quit"
-        choice <- getLine
-        if choice == "y"
-        then do
-          (newFN, newFV) <- completeField
-          if | newFN == messageFieldName (head fields) ->
-               let (newNamesVals, newFields) = doubleReplace 0 (newFN, newFV) namesVals fields
-               in changeFieldsOrNot mn newNamesVals newFields
-             | newFN == messageFieldName (fields!!1) ->
-               let (newNamesVals, newFields) = doubleReplace 1 (newFN, newFV) namesVals fields
-               in changeFieldsOrNot mn newNamesVals newFields
-             | otherwise ->
-               let (newNamesVals, newFields) = doubleReplace 2 (newFN, newFV) namesVals fields
-               in changeFieldsOrNot mn newNamesVals newFields
-        else if choice == "s"
-        then useTwo serialize changeFieldsOrNot mn namesVals fields
-        else putStrLn "Ok, see final serialisation above."
-
-    doubleReplace :: Int
-                  -> (FieldName, FieldValue)
+changeFieldsOrNot :: MsgName
                   -> [(FieldName, FieldValue)]
                   -> [MessageField]
-                  -> ([(FieldName, FieldValue)], [MessageField])
-    doubleReplace n (newFN, newFV) namesVals fields =
-        ( replace n (newFN, newFV) namesVals
-        , replace n (MessageField newFN newFV) fields)
+                  -> MessageSchema
+                  -> IO ()
+changeFieldsOrNot mn namesVals fields schema = do
+    putStrLn "Change any field's value? y for yes, s to serialize, any other key to quit"
+    choice <- getLine
+    if choice == "y"
+    then do
+      (newFN, newFV) <- completeField schema
+      if | newFN == messageFieldName (head fields) ->
+           let (newNamesVals, newFields) = doubleReplace 0 (newFN, newFV) namesVals fields
+           in changeFieldsOrNot mn newNamesVals newFields schema
+         | newFN == messageFieldName (fields!!1) ->
+           let (newNamesVals, newFields) = doubleReplace 1 (newFN, newFV) namesVals fields
+           in changeFieldsOrNot mn newNamesVals newFields schema
+         | otherwise ->
+           let (newNamesVals, newFields) = doubleReplace 2 (newFN, newFV) namesVals fields
+           in changeFieldsOrNot mn newNamesVals newFields schema
+    else if choice == "s"
+    then useTwo serialize changeFieldsOrNot mn namesVals fields schema
+    else putStrLn "Ok, see final serialisation above."
 
-    useTwo :: (a -> b -> c -> IO ())
-           -> (a -> b -> c -> IO ())
-           -> a -> b -> c -> IO ()
-    useTwo f g a b c = do
-        f a b c
-        g a b c
+doubleReplace :: Int
+              -> (FieldName, FieldValue)
+              -> [(FieldName, FieldValue)]
+              -> [MessageField]
+              -> ([(FieldName, FieldValue)], [MessageField])
+doubleReplace n (newFN, newFV) namesVals fields =
+    ( replace n (newFN, newFV) namesVals
+    , replace n (MessageField newFN newFV) fields)
+
+useTwo :: (a -> b -> c -> d -> IO ())
+       -> (a -> b -> c -> d -> IO ())
+       -> a -> b -> c -> d -> IO ()
+useTwo f g a b c d = do
+    f a b c d
+    g a b c d
+
+getNameVals :: MessageSchema -> IO [(FieldName, FieldValue)]
+getNameVals sch = do
+    (fn, fv) <- completeField sch
+    moreInputs <- getNameVals sch
+    return ((fn, fv) : moreInputs)
+
+toMF :: (FieldName, FieldValue) -> MessageField
+toMF (fn, fv) = MessageField fn fv
+
+main :: IO ()
+main = do
+    someSchema <- msgSchema
+    mn <- addMsgName someSchema
+    schFields <- parseFields "proto/protobuf2.proto"
+    namesVals <- getNameVals someSchema
+    let msgFields = map toMF namesVals
+    let namesVals' = namesVals ++ [(FN "_unknownFields", FText (Rep []))]
+    serialize mn namesVals' msgFields someSchema
+    changeFieldsOrNot mn namesVals' msgFields someSchema
