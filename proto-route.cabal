@@ -26,6 +26,7 @@ custom-setup
       Cabal
     , base
     , proto-lens-protoc
+    , proto-lens-setup
 
 library
   hs-source-dirs:      src
@@ -47,7 +48,7 @@ library
                      , proto-lens
                      , proto-lens-protoc
                      , text
-                     , these 
+                     , these
                      , vty
   default-language:    Haskell2010
 
@@ -67,6 +68,6 @@ executable proto-route
                      , proto-lens-protoc
                      , proto-route
                      , text
-                     , these 
+                     , these
                      , vty
   default-language:    Haskell2010
